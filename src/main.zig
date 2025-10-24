@@ -1,25 +1,31 @@
 const std = @import("std");
 
+const cli = @import("cli.zig");
+
 pub fn main() !void {
-    // Prints to stderr, ignoring potential errors.
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-}
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
-test "simple test" {
-    const gpa = std.testing.allocator;
-    var list: std.ArrayList(i32) = .empty;
-    defer list.deinit(gpa); // Try commenting this out and see if zig detects the memory leak!
-    try list.append(gpa, 42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
-}
+    var args = try std.process.argsWithAllocator(allocator);
+    defer args.deinit();
 
-test "fuzz example" {
-    const Context = struct {
-        fn testOne(context: @This(), input: []const u8) anyerror!void {
-            _ = context;
-            // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
-            try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input));
-        }
-    };
-    try std.testing.fuzz(Context{}, Context.testOne, .{});
+    switch (cli.parse(&args)) {
+        .usage => |usage| {
+            std.debug.print("{s}\n", .{cli.usage});
+
+            if (usage == .invalid) {
+                std.process.exit(1);
+            }
+        },
+        .check => {
+            std.debug.print("TODO: check\n", .{});
+        },
+        .fix => {
+            std.debug.print("TODO: fix\n", .{});
+        },
+        .set => |set| {
+            std.debug.print("TODO: set '{s}' = '{s}'\n", .{ set.action, set.tag });
+        },
+    }
 }
