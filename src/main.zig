@@ -1,12 +1,15 @@
 const std = @import("std");
 
+const Regex = @import("regex").Regex;
+
+const ActionRegex = @import("ActionRegex.zig");
 const Cli = @import("Cli.zig");
 const GithubIterator = @import("GithubIterator.zig");
 const lockfile = @import("lockfile.zig");
 
 const lockfile_path = ".github/galock.toml";
 
-pub fn main() !void {
+pub fn main() !u8 {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -26,7 +29,7 @@ pub fn main() !void {
             std.debug.print("{s}\n", .{Cli.usage});
 
             if (usage == .invalid) {
-                std.process.exit(1);
+                return 1;
             }
         },
         .list => {
@@ -44,11 +47,67 @@ pub fn main() !void {
             try stdout.flush();
         },
         .check => {
+            var lock = try lockfile.fromPath(allocator, lockfile_path);
+            defer lock.deinit(allocator);
+
+            var re = try ActionRegex.init(allocator);
+            defer re.deinit();
+
+            var any_errors = false;
             var iter = try GithubIterator.init(std.fs.cwd(), .{});
             while (try iter.next()) |entry| {
                 defer entry.file.close();
-                std.debug.print("{s}: {any}\n", .{ entry.name, entry.kind });
+
+                var buf: [4096]u8 = undefined;
+                var r = entry.file.reader(&buf);
+                var w = std.io.Writer.Allocating.init(allocator);
+                defer w.deinit();
+                var i: usize = 1;
+                while (!r.atEnd()) : (i += 1) {
+                    _ = try r.interface.streamDelimiterEnding(&w.writer, '\n');
+                    _ = r.interface.takeByte() catch |err|
+                        if (err != error.EndOfStream) return err;
+
+                    const line = try w.toOwnedSlice();
+
+                    if (try re.matchLine(line)) |captures| {
+                        const repo = captures.repo();
+
+                        if (captures.revision()) |rev| {
+                            std.log.debug("{s}({any}):{d}: found '{s}' @ '{s}'", .{ entry.name, entry.kind, i, repo, rev });
+                        } else {
+                            std.log.debug("{s}({any}):{d}: found '{s}' without revision", .{ entry.name, entry.kind, i, repo });
+                        }
+
+                        if (lock.get(repo)) |action| {
+                            if (captures.revision()) |rev| {
+                                if (std.mem.eql(u8, action.commit, rev)) {
+                                    std.log.debug("{s}({any}):{d}: '{s}' is correct", .{ entry.name, entry.kind, i, repo });
+                                    continue;
+                                } else {
+                                    std.log.err("{s}({any}):{d}: '{s}' is at '{s}', but should be '{s}'", .{
+                                        entry.name,
+                                        entry.kind,
+                                        i,
+                                        repo,
+                                        rev,
+                                        action.commit,
+                                    });
+                                }
+                            } else {
+                                std.log.err("{s}({any}):{d}: '{s}' is not pinned", .{ entry.name, entry.kind, i, repo });
+                            }
+                        } else {
+                            std.log.err("{s}({any}):{d}: '{s}' is not in the lockfile", .{ entry.name, entry.kind, i, repo });
+                        }
+
+                        any_errors = true;
+                    }
+                }
             }
+
+            if (any_errors)
+                return 1;
         },
         .fix => {
             std.debug.print("TODO: fix\n", .{});
@@ -70,4 +129,6 @@ pub fn main() !void {
             try lock.write();
         },
     }
+
+    return 0;
 }

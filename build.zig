@@ -4,6 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const regex = b.dependency("regex", .{});
     const toml = b.dependency("toml", .{});
 
     const exe = b.addExecutable(.{
@@ -15,6 +16,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    exe.root_module.addImport("regex", regex.module("regex"));
     exe.root_module.addImport("toml", toml.module("toml"));
 
     b.installArtifact(exe);

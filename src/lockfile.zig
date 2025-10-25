@@ -25,13 +25,20 @@ pub const Wrapper = struct {
     arena: ?std.heap.ArenaAllocator = null,
     actions: std.ArrayList(Action) = .empty,
 
+    pub fn get(self: *Wrapper, action: []const u8) ?*const Action {
+        switch (self.findActionIndex(action)) {
+            .found => |i| return &self.actions.items[i],
+            .missing => return null,
+        }
+    }
+
     pub fn set(
         self: *Wrapper,
         allocator: std.mem.Allocator,
         action: []const u8,
         tag: []const u8,
     ) !?[]const u8 {
-        switch (self.findAction(action)) {
+        switch (self.findActionIndex(action)) {
             .found => |i| {
                 var found = &self.actions.items[i];
                 const old = found.tag;
@@ -51,7 +58,7 @@ pub const Wrapper = struct {
     }
 
     pub fn remove(self: *Wrapper, action: []const u8) ?[]const u8 {
-        switch (self.findAction(action)) {
+        switch (self.findActionIndex(action)) {
             .found => |i| {
                 const tag = self.actions.items[i].tag;
 
@@ -73,7 +80,7 @@ pub const Wrapper = struct {
         missing: usize,
     };
 
-    fn findAction(self: *const Wrapper, action: []const u8) FindResult {
+    fn findActionIndex(self: *const Wrapper, action: []const u8) FindResult {
         // Based on std.sort.binarySearch
         var low: usize = 0;
         var high: usize = self.actions.items.len;
