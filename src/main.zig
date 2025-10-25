@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const cli = @import("cli.zig");
+const Cli = @import("Cli.zig");
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -10,9 +10,16 @@ pub fn main() !void {
     var args = try std.process.argsWithAllocator(allocator);
     defer args.deinit();
 
-    switch (cli.parse(&args)) {
+    const cli = Cli.parse(&args);
+
+    if (cli.cwd) |path| {
+        const dir = try std.fs.cwd().openDir(path, .{});
+        try dir.setAsCwd();
+    }
+
+    switch (cli.action) {
         .usage => |usage| {
-            std.debug.print("{s}\n", .{cli.usage});
+            std.debug.print("{s}\n", .{Cli.usage});
 
             if (usage == .invalid) {
                 std.process.exit(1);
