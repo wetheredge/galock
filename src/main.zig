@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const Cli = @import("Cli.zig");
+const GithubIterator = @import("GithubIterator.zig");
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -26,7 +27,11 @@ pub fn main() !void {
             }
         },
         .check => {
-            std.debug.print("TODO: check\n", .{});
+            var iter = try GithubIterator.init(std.fs.cwd(), .{});
+            while (try iter.next()) |entry| {
+                defer entry.file.close();
+                std.debug.print("{s}: {any}\n", .{ entry.name, entry.kind });
+            }
         },
         .fix => {
             std.debug.print("TODO: fix\n", .{});
