@@ -62,5 +62,12 @@ pub fn main() !void {
 
             // TODO: update workflows & actions
         },
+        .remove => |action| {
+            var lock = try lockfile.fromPath(allocator, lockfile_path);
+            defer lock.deinit(allocator);
+
+            _ = lock.remove(action);
+            try lock.write();
+        },
     }
 }

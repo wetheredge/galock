@@ -31,30 +31,63 @@ pub const Wrapper = struct {
         action: []const u8,
         tag: []const u8,
     ) !?[]const u8 {
+        switch (self.findAction(action)) {
+            .found => |i| {
+                var found = &self.actions.items[i];
+                const old = found.tag;
+                found.tag = tag;
+                return old;
+            },
+            .missing => |i| {
+                try self.actions.insert(allocator, i, .{
+                    .repo = action,
+                    .tag = tag,
+                    .commit = "TODO",
+                });
+
+                return null;
+            },
+        }
+    }
+
+    pub fn remove(self: *Wrapper, action: []const u8) ?[]const u8 {
+        switch (self.findAction(action)) {
+            .found => |i| {
+                const tag = self.actions.items[i].tag;
+
+                const new_len = self.actions.items.len - 1;
+                @memmove(
+                    self.actions.items[i..new_len],
+                    self.actions.items[(i + 1)..],
+                );
+                self.actions.shrinkRetainingCapacity(new_len);
+
+                return tag;
+            },
+            .missing => return null,
+        }
+    }
+
+    const FindResult = union(enum) {
+        found: usize,
+        missing: usize,
+    };
+
+    fn findAction(self: *const Wrapper, action: []const u8) FindResult {
         // Based on std.sort.binarySearch
         var low: usize = 0;
         var high: usize = self.actions.items.len;
+
         while (low < high) {
             const mid = low + (high - low) / 2;
-            var trial = &self.actions.items[mid];
-            switch (std.mem.order(u8, action, trial.repo)) {
-                .eq => {
-                    const old = trial.tag;
-                    trial.tag = tag;
-                    return old;
-                },
+            switch (std.mem.order(u8, action, self.actions.items[mid].repo)) {
+                .eq => return .{ .found = mid },
                 .lt => high = mid,
                 .gt => low = mid + 1,
             }
         }
 
-        try self.actions.insert(allocator, high, .{
-            .repo = action,
-            .tag = tag,
-            .commit = "TODO",
-        });
-
-        return null;
+        return .{ .missing = high };
     }
 
     pub fn write(self: *Wrapper) !void {
