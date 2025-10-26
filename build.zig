@@ -4,6 +4,8 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const toml = b.dependency("toml", .{});
+
     const exe = b.addExecutable(.{
         .name = "default",
         .root_module = b.createModule(.{
@@ -12,6 +14,8 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+
+    exe.root_module.addImport("toml", toml.module("toml"));
 
     b.installArtifact(exe);
 

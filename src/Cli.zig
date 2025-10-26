@@ -71,7 +71,7 @@ pub fn parse(args: *std.process.ArgIterator) @This() {
         } else if (std.mem.eql(u8, cmd, "set")) {
             if (pargs.next()) |action| {
                 if (pargs.next()) |tag| {
-                    cli.action.set = .{ .action = action, .tag = tag };
+                    cli.action = .{ .set = .{ .action = action, .tag = tag } };
                 }
             }
         } else if (std.mem.eql(u8, cmd, "help") or std.mem.eql(u8, cmd, "-h") or std.mem.eql(u8, cmd, "--help")) {

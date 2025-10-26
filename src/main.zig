@@ -2,6 +2,9 @@ const std = @import("std");
 
 const Cli = @import("Cli.zig");
 const GithubIterator = @import("GithubIterator.zig");
+const lockfile = @import("lockfile.zig");
+
+const lockfile_path = ".github/galock.toml";
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -37,7 +40,13 @@ pub fn main() !void {
             std.debug.print("TODO: fix\n", .{});
         },
         .set => |set| {
-            std.debug.print("TODO: set '{s}' = '{s}'\n", .{ set.action, set.tag });
+            var lock = try lockfile.fromPath(allocator, lockfile_path);
+            defer lock.deinit(allocator);
+
+            _ = try lock.set(allocator, set.action, set.tag);
+            try lock.write();
+
+            // TODO: update workflows & actions
         },
     }
 }
