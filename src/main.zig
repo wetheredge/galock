@@ -29,6 +29,20 @@ pub fn main() !void {
                 std.process.exit(1);
             }
         },
+        .list => {
+            var lock = try lockfile.fromPath(allocator, lockfile_path);
+            defer lock.deinit(allocator);
+
+            var stdout_buffer: [1024]u8 = undefined;
+            var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+            const stdout = &stdout_writer.interface;
+
+            for (lock.actions.items) |action| {
+                try stdout.print("{s}@{s}\n", .{ action.repo, action.tag });
+            }
+
+            try stdout.flush();
+        },
         .check => {
             var iter = try GithubIterator.init(std.fs.cwd(), .{});
             while (try iter.next()) |entry| {
