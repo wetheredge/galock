@@ -26,6 +26,10 @@ pub fn matchLine(self: *@This(), line: []const u8) !?Captures {
 pub const Captures = struct {
     captures: regex.Captures,
 
+    pub fn deinit(self: *Captures) void {
+        self.captures.deinit();
+    }
+
     pub fn repo(self: *const @This()) []const u8 {
         return self.captures.sliceAt(1).?;
     }

@@ -144,6 +144,7 @@ pub fn fromPath(allocator: std.mem.Allocator, path: []const u8) !Wrapper {
     var buf: [4096]u8 = undefined;
     var r = file.reader(&buf);
     var w = std.io.Writer.Allocating.init(allocator);
+    defer w.deinit();
 
     var version: u8 = undefined;
     while (true) {

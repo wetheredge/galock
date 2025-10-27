@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 
 const Regex = @import("regex").Regex;
@@ -11,9 +12,9 @@ const lockfile = @import("lockfile.zig");
 const lockfile_path = ".github/galock.toml";
 
 pub fn main() !u8 {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    var allocator_choice = Allocator.init();
+    defer allocator_choice.deinit();
+    const allocator = allocator_choice.allocator();
 
     var args = try std.process.argsWithAllocator(allocator);
     defer args.deinit();
@@ -65,7 +66,12 @@ pub fn main() !u8 {
                 defer lines.deinit();
                 var i: usize = 1;
                 while (try lines.next()) |line| : (i += 1) {
-                    if (try re.matchLine(line)) |captures| {
+                    defer allocator.free(line);
+
+                    var maybe_captures = try re.matchLine(line);
+                    if (maybe_captures) |*captures| {
+                        defer captures.deinit();
+
                         const repo = captures.repo();
 
                         if (captures.revision()) |rev| {
@@ -127,3 +133,32 @@ pub fn main() !u8 {
 
     return 0;
 }
+
+const Allocator = union(enum) {
+    gpa: std.heap.GeneralPurposeAllocator(.{}),
+    arena: std.heap.ArenaAllocator,
+
+    fn init() Allocator {
+        return if (builtin.mode == .Debug)
+            .{ .gpa = .init }
+        else
+            .{ .arena = .init(std.heap.page_allocator) };
+    }
+
+    fn deinit(self: *Allocator) void {
+        switch (self.*) {
+            .gpa => |*gpa| {
+                _ = gpa.detectLeaks();
+                _ = gpa.deinit();
+            },
+            .arena => |*arena| arena.deinit(),
+        }
+    }
+
+    fn allocator(self: *Allocator) std.mem.Allocator {
+        switch (self.*) {
+            .gpa => |*gpa| return gpa.allocator(),
+            .arena => |*arena| return arena.allocator(),
+        }
+    }
+};
