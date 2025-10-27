@@ -5,6 +5,7 @@ const Regex = @import("regex").Regex;
 const ActionRegex = @import("ActionRegex.zig");
 const Cli = @import("Cli.zig");
 const GithubIterator = @import("GithubIterator.zig");
+const LineIterator = @import("LineIterator.zig");
 const lockfile = @import("lockfile.zig");
 
 const lockfile_path = ".github/galock.toml";
@@ -60,16 +61,10 @@ pub fn main() !u8 {
 
                 var buf: [4096]u8 = undefined;
                 var r = entry.file.reader(&buf);
-                var w = std.io.Writer.Allocating.init(allocator);
-                defer w.deinit();
+                var lines = LineIterator.init(allocator, &r.interface);
+                defer lines.deinit();
                 var i: usize = 1;
-                while (!r.atEnd()) : (i += 1) {
-                    _ = try r.interface.streamDelimiterEnding(&w.writer, '\n');
-                    _ = r.interface.takeByte() catch |err|
-                        if (err != error.EndOfStream) return err;
-
-                    const line = try w.toOwnedSlice();
-
+                while (try lines.next()) |line| : (i += 1) {
                     if (try re.matchLine(line)) |captures| {
                         const repo = captures.repo();
 
