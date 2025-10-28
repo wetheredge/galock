@@ -5,6 +5,7 @@ const Regex = @import("regex").Regex;
 
 const ActionRegex = @import("ActionRegex.zig");
 const Cli = @import("Cli.zig");
+const GithubApiClient = @import("GithubApiClient.zig");
 const GithubIterator = @import("GithubIterator.zig");
 const LineIterator = @import("LineIterator.zig");
 const lockfile = @import("lockfile.zig");
@@ -117,8 +118,19 @@ pub fn main() !u8 {
             var lock = try lockfile.fromPath(allocator, lockfile_path);
             defer lock.deinit(allocator);
 
-            _ = try lock.set(allocator, set.action, set.tag);
-            try lock.write();
+            var api = try GithubApiClient.init(allocator, null);
+            defer api.deinit();
+
+            if (try resolveTag(allocator, &api, set.action, set.tag)) |commit| {
+                defer allocator.free(commit);
+
+                std.log.info("resolved {s}@{s} to commit {s}", .{ set.action, set.tag, commit });
+
+                _ = try lock.set(allocator, set.action, set.tag, commit);
+                try lock.write();
+            } else {
+                std.log.err("failed to resolve {s}@{s}", .{ set.action, set.tag });
+            }
 
             // TODO: update workflows & actions
         },
@@ -132,6 +144,40 @@ pub fn main() !u8 {
     }
 
     return 0;
+}
+
+fn resolveTag(
+    allocator: std.mem.Allocator,
+    api: *GithubApiClient,
+    repo: []const u8,
+    tag: []const u8,
+) !?[]const u8 {
+    const Ref = struct {
+        object: struct {
+            type: []const u8,
+            sha: []const u8,
+        },
+    };
+    const Tag = Ref;
+
+    const ref_json = try api.getJson(Ref, &.{ "repos", repo, "git/ref/tags", tag }) orelse return null;
+    defer ref_json.deinit();
+    const ref_obj = ref_json.value.object;
+
+    if (std.mem.eql(u8, ref_obj.type, "commit")) {
+        return try allocator.dupe(u8, ref_obj.sha);
+    } else if (std.mem.eql(u8, ref_obj.type, "tag")) {
+        const tag_json = try api.getJson(Tag, &.{ "repos", repo, "git/tags", ref_obj.sha }) orelse return null;
+        defer tag_json.deinit();
+        const tag_obj = tag_json.value.object;
+
+        if (std.mem.eql(u8, tag_obj.type, "commit")) {
+            return try allocator.dupe(u8, tag_obj.sha);
+        }
+    }
+
+    std.log.err("invalid ref type when getting {s}@{s}", .{ repo, tag });
+    return error.InvalidRefType;
 }
 
 const Allocator = union(enum) {

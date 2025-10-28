@@ -37,19 +37,21 @@ pub const Wrapper = struct {
         allocator: std.mem.Allocator,
         action: []const u8,
         tag: []const u8,
+        commit: []const u8,
     ) !?[]const u8 {
         switch (self.findActionIndex(action)) {
             .found => |i| {
                 var found = &self.actions.items[i];
                 const old = found.tag;
                 found.tag = tag;
+                found.commit = commit;
                 return old;
             },
             .missing => |i| {
                 try self.actions.insert(allocator, i, .{
                     .repo = action,
                     .tag = tag,
-                    .commit = "TODO",
+                    .commit = commit,
                 });
 
                 return null;
