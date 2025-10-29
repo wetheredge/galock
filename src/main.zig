@@ -111,9 +111,6 @@ pub fn main() !u8 {
             if (any_errors)
                 return 1;
         },
-        .fix => {
-            std.debug.print("TODO: fix\n", .{});
-        },
         .set => |set| {
             var lock = try lockfile.fromPath(allocator, lockfile_path);
             defer lock.deinit(allocator);

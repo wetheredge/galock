@@ -8,7 +8,6 @@ pub const usage =
     \\  galock [options] help                # print this usage
     \\  galock [options] list                # list all actions in the lockfile and their tags
     \\  galock [options] check               # check that all workflows match the lockfile
-    \\  galock [options] fix                 # update all workflows to match the lockfile
     \\  galock [options] set <action> <tag>  # set the tag used for an action and update workflows
     \\  galock [options] rm <action> <tag>   # remove an action from the lockfile
     \\
@@ -20,7 +19,6 @@ const Action = union(enum) {
     usage: CommandUsage,
     list,
     check,
-    fix,
     set: CommandSet,
     remove: []const u8,
 };
@@ -72,8 +70,6 @@ pub fn parse(args: *std.process.ArgIterator) @This() {
             cli.action = .check;
         } else if (std.mem.eql(u8, cmd, "list")) {
             cli.action = .list;
-        } else if (std.mem.eql(u8, cmd, "fix")) {
-            cli.action = .fix;
         } else if (std.mem.eql(u8, cmd, "set")) {
             if (pargs.next()) |action| {
                 if (pargs.next()) |tag| {
