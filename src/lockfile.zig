@@ -25,7 +25,7 @@ pub const Wrapper = struct {
     arena: ?std.heap.ArenaAllocator = null,
     actions: std.ArrayList(Action) = .empty,
 
-    pub fn get(self: *Wrapper, action: []const u8) ?*const Action {
+    pub fn get(self: *const Wrapper, action: []const u8) ?*const Action {
         switch (self.findActionIndex(action)) {
             .found => |i| return &self.actions.items[i],
             .missing => return null,

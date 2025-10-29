@@ -53,62 +53,12 @@ pub fn main() !u8 {
             var lock = try lockfile.fromPath(allocator, lockfile_path);
             defer lock.deinit(allocator);
 
-            var re = try ActionRegex.init(allocator);
-            defer re.deinit();
+            var api = try GithubApiClient.init(allocator, null);
+            defer api.deinit();
 
-            var any_errors = false;
-            var iter = try GithubIterator.init(std.fs.cwd(), .{});
-            while (try iter.next()) |entry| {
-                defer entry.file.close();
+            try checkAllTags(allocator, &lock, &api);
 
-                var buf: [4096]u8 = undefined;
-                var r = entry.file.reader(&buf);
-                var lines = LineIterator.init(allocator, &r.interface);
-                defer lines.deinit();
-                var i: usize = 1;
-                while (try lines.next()) |line| : (i += 1) {
-                    defer allocator.free(line);
-
-                    var maybe_captures = try re.matchLine(line);
-                    if (maybe_captures) |*captures| {
-                        defer captures.deinit();
-
-                        const repo = captures.repo();
-
-                        if (captures.revision()) |rev| {
-                            std.log.debug("{s}({any}):{d}: found '{s}' @ '{s}'", .{ entry.name, entry.kind, i, repo, rev });
-                        } else {
-                            std.log.debug("{s}({any}):{d}: found '{s}' without revision", .{ entry.name, entry.kind, i, repo });
-                        }
-
-                        if (lock.get(repo)) |action| {
-                            if (captures.revision()) |rev| {
-                                if (std.mem.eql(u8, action.commit, rev)) {
-                                    std.log.debug("{s}({any}):{d}: '{s}' is correct", .{ entry.name, entry.kind, i, repo });
-                                    continue;
-                                } else {
-                                    std.log.err("{s}({any}):{d}: '{s}' is at '{s}', but should be '{s}'", .{
-                                        entry.name,
-                                        entry.kind,
-                                        i,
-                                        repo,
-                                        rev,
-                                        action.commit,
-                                    });
-                                }
-                            } else {
-                                std.log.err("{s}({any}):{d}: '{s}' is not pinned", .{ entry.name, entry.kind, i, repo });
-                            }
-                        } else {
-                            std.log.err("{s}({any}):{d}: '{s}' is not in the lockfile", .{ entry.name, entry.kind, i, repo });
-                        }
-
-                        any_errors = true;
-                    }
-                }
-            }
-
-            if (any_errors)
+            if (try checkUses(allocator, &lock, std.fs.cwd()))
                 return 1;
         },
         .set => |set| {
@@ -118,61 +68,7 @@ pub fn main() !u8 {
             var api = try GithubApiClient.init(allocator, null);
             defer api.deinit();
 
-            if (try resolveTag(allocator, &api, set.action, set.tag)) |commit| {
-                defer allocator.free(commit);
-
-                std.log.info("resolved {s}@{s} to commit {s}", .{ set.action, set.tag, commit });
-
-                _ = try lock.set(allocator, set.action, set.tag, commit);
-                try lock.write();
-
-                var re = try ActionRegex.init(allocator);
-                defer re.deinit();
-
-                var iter = try GithubIterator.init(std.fs.cwd(), .{ .mode = .read_write });
-                while (try iter.next()) |entry| {
-                    defer entry.file.close();
-
-                    var w = std.io.Writer.Allocating.init(allocator);
-                    defer w.deinit();
-
-                    var buf: [4096]u8 = undefined;
-                    var r = entry.file.reader(&buf);
-                    var lines = LineIterator.init(allocator, &r.interface);
-                    defer lines.deinit();
-                    var i: usize = 0;
-                    while (try lines.next()) |line| : (i += 1) {
-                        defer allocator.free(line);
-
-                        if (i > 0) try w.writer.writeByte('\n');
-
-                        var maybe_captures = try re.matchLine(line);
-                        if (maybe_captures) |*captures| {
-                            defer captures.deinit();
-
-                            if (std.mem.eql(u8, captures.repo(), set.action)) {
-                                std.log.debug("{s}({any}): updating line {d}", .{ entry.name, entry.kind, i });
-
-                                var vec: [5][]const u8 = .{
-                                    captures.head(),
-                                    set.action,
-                                    "@",
-                                    commit,
-                                    captures.tail(),
-                                };
-                                try w.writer.writeVecAll(&vec);
-                                continue;
-                            }
-                        }
-
-                        try w.writer.writeAll(line);
-                    }
-
-                    try entry.file.writeAll(w.writer.buffered());
-                }
-            } else {
-                std.log.err("failed to resolve {s}@{s}", .{ set.action, set.tag });
-            }
+            try setActionTag(allocator, &lock, &api, set.action, set.tag);
         },
         .remove => |action| {
             var lock = try lockfile.fromPath(allocator, lockfile_path);
@@ -218,6 +114,162 @@ fn resolveTag(
 
     std.log.err("invalid ref type when getting {s}@{s}", .{ repo, tag });
     return error.InvalidRefType;
+}
+
+fn checkAllTags(
+    allocator: std.mem.Allocator,
+    lock: *const lockfile.Wrapper,
+    api: *GithubApiClient,
+) !void {
+    for (lock.actions.items) |action| {
+        if (try resolveTag(allocator, api, action.repo, action.tag)) |current| {
+            defer allocator.free(current);
+
+            if (std.mem.eql(u8, action.commit, current)) {
+                std.log.debug("{s}@{s} still resolves to {s}", .{
+                    action.repo,
+                    action.tag,
+                    action.commit,
+                });
+            } else {
+                std.log.warn("{s}@{s} is locked to {s}, but now resolves to {s}", .{
+                    action.repo,
+                    action.tag,
+                    action.commit,
+                    current,
+                });
+            }
+        } else {
+            std.log.warn("{s}@{s} no longer resolves to a commit", .{ action.repo, action.tag });
+        }
+    }
+}
+
+fn checkUses(
+    allocator: std.mem.Allocator,
+    lock: *const lockfile.Wrapper,
+    root: std.fs.Dir,
+) !bool {
+    var re = try ActionRegex.init(allocator);
+    defer re.deinit();
+
+    var any_errors = false;
+    var iter = try GithubIterator.init(root, .{});
+    while (try iter.next()) |entry| {
+        defer entry.file.close();
+
+        var buf: [4096]u8 = undefined;
+        var r = entry.file.reader(&buf);
+        var lines = LineIterator.init(allocator, &r.interface);
+        defer lines.deinit();
+        var i: usize = 1;
+        while (try lines.next()) |line| : (i += 1) {
+            defer allocator.free(line);
+
+            var maybe_captures = try re.matchLine(line);
+            if (maybe_captures) |*captures| {
+                defer captures.deinit();
+
+                const repo = captures.repo();
+
+                if (captures.revision()) |rev| {
+                    std.log.debug("{s}({any}):{d}: found '{s}' @ '{s}'", .{ entry.name, entry.kind, i, repo, rev });
+                } else {
+                    std.log.debug("{s}({any}):{d}: found '{s}' without revision", .{ entry.name, entry.kind, i, repo });
+                }
+
+                if (lock.get(repo)) |action| {
+                    if (captures.revision()) |rev| {
+                        if (std.mem.eql(u8, action.commit, rev)) {
+                            std.log.debug("{s}({any}):{d}: '{s}' is correct", .{ entry.name, entry.kind, i, repo });
+                            continue;
+                        } else {
+                            std.log.err("{s}({any}):{d}: '{s}' is at '{s}', but should be '{s}'", .{
+                                entry.name,
+                                entry.kind,
+                                i,
+                                repo,
+                                rev,
+                                action.commit,
+                            });
+                        }
+                    } else {
+                        std.log.err("{s}({any}):{d}: '{s}' is not pinned", .{ entry.name, entry.kind, i, repo });
+                    }
+                } else {
+                    std.log.err("{s}({any}):{d}: '{s}' is not in the lockfile", .{ entry.name, entry.kind, i, repo });
+                }
+
+                any_errors = true;
+            }
+        }
+    }
+
+    return any_errors;
+}
+
+fn setActionTag(
+    allocator: std.mem.Allocator,
+    lock: *lockfile.Wrapper,
+    api: *GithubApiClient,
+    repo: []const u8,
+    tag: []const u8,
+) !void {
+    if (try resolveTag(allocator, api, repo, tag)) |commit| {
+        defer allocator.free(commit);
+
+        std.log.info("resolved {s}@{s} to commit {s}", .{ repo, tag, commit });
+
+        _ = try lock.set(allocator, repo, tag, commit);
+        try lock.write();
+
+        var re = try ActionRegex.init(allocator);
+        defer re.deinit();
+
+        var iter = try GithubIterator.init(std.fs.cwd(), .{ .mode = .read_write });
+        while (try iter.next()) |entry| {
+            defer entry.file.close();
+
+            var w = std.io.Writer.Allocating.init(allocator);
+            defer w.deinit();
+
+            var buf: [4096]u8 = undefined;
+            var r = entry.file.reader(&buf);
+            var lines = LineIterator.init(allocator, &r.interface);
+            defer lines.deinit();
+            var i: usize = 0;
+            while (try lines.next()) |line| : (i += 1) {
+                defer allocator.free(line);
+
+                if (i > 0) try w.writer.writeByte('\n');
+
+                var maybe_captures = try re.matchLine(line);
+                if (maybe_captures) |*captures| {
+                    defer captures.deinit();
+
+                    if (std.mem.eql(u8, captures.repo(), repo)) {
+                        std.log.debug("{s}({any}): updating line {d}", .{ entry.name, entry.kind, i });
+
+                        var vec: [5][]const u8 = .{
+                            captures.head(),
+                            repo,
+                            "@",
+                            commit,
+                            captures.tail(),
+                        };
+                        try w.writer.writeVecAll(&vec);
+                        continue;
+                    }
+                }
+
+                try w.writer.writeAll(line);
+            }
+
+            try entry.file.writeAll(w.writer.buffered());
+        }
+    } else {
+        std.log.err("failed to resolve {s}@{s}", .{ repo, tag });
+    }
 }
 
 const Allocator = union(enum) {
