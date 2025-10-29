@@ -128,11 +128,54 @@ pub fn main() !u8 {
 
                 _ = try lock.set(allocator, set.action, set.tag, commit);
                 try lock.write();
+
+                var re = try ActionRegex.init(allocator);
+                defer re.deinit();
+
+                var iter = try GithubIterator.init(std.fs.cwd(), .{ .mode = .read_write });
+                while (try iter.next()) |entry| {
+                    defer entry.file.close();
+
+                    var w = std.io.Writer.Allocating.init(allocator);
+                    defer w.deinit();
+
+                    var buf: [4096]u8 = undefined;
+                    var r = entry.file.reader(&buf);
+                    var lines = LineIterator.init(allocator, &r.interface);
+                    defer lines.deinit();
+                    var i: usize = 0;
+                    while (try lines.next()) |line| : (i += 1) {
+                        defer allocator.free(line);
+
+                        if (i > 0) try w.writer.writeByte('\n');
+
+                        var maybe_captures = try re.matchLine(line);
+                        if (maybe_captures) |*captures| {
+                            defer captures.deinit();
+
+                            if (std.mem.eql(u8, captures.repo(), set.action)) {
+                                std.log.debug("{s}({any}): updating line {d}", .{ entry.name, entry.kind, i });
+
+                                var vec: [5][]const u8 = .{
+                                    captures.head(),
+                                    set.action,
+                                    "@",
+                                    commit,
+                                    captures.tail(),
+                                };
+                                try w.writer.writeVecAll(&vec);
+                                continue;
+                            }
+                        }
+
+                        try w.writer.writeAll(line);
+                    }
+
+                    try entry.file.writeAll(w.writer.buffered());
+                }
             } else {
                 std.log.err("failed to resolve {s}@{s}", .{ set.action, set.tag });
             }
-
-            // TODO: update workflows & actions
         },
         .remove => |action| {
             var lock = try lockfile.fromPath(allocator, lockfile_path);

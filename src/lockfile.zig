@@ -106,18 +106,20 @@ pub const Wrapper = struct {
         var buf: [4096]u8 = undefined;
         var w = file.writer(&buf);
 
-        try w.interface.writeAll(header);
-        try w.interface.writeAll(version_prefix);
-        try w.interface.writeAll("0\n");
+        var header_vec: [3][]const u8 = .{ header, version_prefix, "0\n" };
+        try w.interface.writeVecAll(&header_vec);
 
         for (self.actions.items) |action| {
-            try w.interface.writeAll("\n[[action]]\nrepo = \"");
-            try w.interface.writeAll(action.repo);
-            try w.interface.writeAll("\"\ntag = \"");
-            try w.interface.writeAll(action.tag);
-            try w.interface.writeAll("\"\ncommit = \"");
-            try w.interface.writeAll(action.commit);
-            try w.interface.writeAll("\"\n");
+            var action_vec: [7][]const u8 = .{
+                "\n[[action]]\nrepo = \"",
+                action.repo,
+                "\"\ntag = \"",
+                action.tag,
+                "\"\ncommit = \"",
+                action.commit,
+                "\"\n",
+            };
+            try w.interface.writeVecAll(&action_vec);
         }
 
         try w.end();

@@ -7,7 +7,7 @@ re: Regex,
 
 pub fn init(allocator: std.mem.Allocator) !@This() {
     const raw =
-        \\^[^#]*\buses:\s*([\w-_]+/[\w-_]+)(@([\w-_./]+\b))?[\s#]
+        \\^([^#]*\buses:\s*)([-\w_]+/[-\w_]+)(@([-\w_./]+))?([\s#].*)?$
     ;
     return .{ .re = try Regex.compile(allocator, raw) };
 }
@@ -30,11 +30,19 @@ pub const Captures = struct {
         self.captures.deinit();
     }
 
-    pub fn repo(self: *const @This()) []const u8 {
+    pub fn head(self: *const @This()) []const u8 {
         return self.captures.sliceAt(1).?;
     }
 
+    pub fn repo(self: *const @This()) []const u8 {
+        return self.captures.sliceAt(2).?;
+    }
+
     pub fn revision(self: *const @This()) ?[]const u8 {
-        return self.captures.sliceAt(3);
+        return self.captures.sliceAt(4);
+    }
+
+    pub fn tail(self: *const @This()) []const u8 {
+        return self.captures.sliceAt(5) orelse "";
     }
 };
