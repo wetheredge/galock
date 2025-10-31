@@ -1,26 +1,33 @@
 {
   inputs = {
-    zig2nix.url = "github:Cloudef/zig2nix";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+
+    flake-utils.url = "github:numtide/flake-utils";
+
+    zig2nix = {
+      url = "github:Cloudef/zig2nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-utils.follows = "flake-utils";
+    };
+
+    zls = {
+      url = "github:zigtools/zls?ref=0.15.0";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { zig2nix, ... }: let
-    flake-utils = zig2nix.inputs.flake-utils;
-  in (flake-utils.lib.eachDefaultSystem (system: let
+  outputs = { flake-utils, zig2nix, zls, ... }: (flake-utils.lib.eachDefaultSystem (system: let
       # Zig flake helper
       # Check the flake.nix in zig2nix project for more options:
       # <https://github.com/Cloudef/zig2nix/blob/master/flake.nix>
-      env = zig2nix.outputs.zig-env.${system} {};
+      env = zig2nix.outputs.zig-env.${system} {
+        zig = zig2nix.outputs.packages.${system}.zig-0_15_2;
+      };
     in with builtins; with env.pkgs.lib; rec {
-      # Produces clean binaries meant to be ship'd outside of nix
+      # Produces clean binaries meant to be shipped outside of nix
       # nix build .#foreign
       packages.foreign = env.package {
         src = cleanSource ./.;
-
-        # Packages required for compiling
-        nativeBuildInputs = with env.pkgs; [];
-
-        # Packages required for linking
-        buildInputs = with env.pkgs; [];
 
         # Smaller binaries and avoids shipping glibc.
         zigPreferMusl = true;
@@ -31,12 +38,7 @@
         # Prefer nix friendly settings.
         zigPreferMusl = false;
 
-        # Executables required for runtime
-        # These packages will be added to the PATH
-        zigWrapperBins = with env.pkgs; [];
-
-        # Libraries required for runtime
-        # These packages will be added to the LD_LIBRARY_PATH
+        zigWrapperBins = [];
         zigWrapperLibs = attrs.buildInputs or [];
       });
 
@@ -44,29 +46,16 @@
       # example: https://github.com/ralismark/nix-appimage
       apps.bundle = {
         type = "app";
-        program = "${packages.foreign}/bin/default";
+        program = "${packages.foreign}/bin/galock";
       };
 
-      # nix run .
-      apps.default = env.app [] "zig build run -- \"$@\"";
+      apps.default = {
+        type = "app";
+        program = "${packages.default}/bin/galock";
+      };
 
-      # nix run .#build
-      apps.build = env.app [] "zig build \"$@\"";
-
-      # nix run .#test
-      apps.test = env.app [] "zig build test -- \"$@\"";
-
-      # nix run .#docs
-      apps.docs = env.app [] "zig build docs -- \"$@\"";
-
-      # nix run .#zig2nix
-      apps.zig2nix = env.app [] "zig2nix \"$@\"";
-
-      # nix develop
       devShells.default = env.mkShell {
-        # Packages required for compiling, linking and running
-        # Libraries added here will be automatically added to the LD_LIBRARY_PATH and PKG_CONFIG_PATH
-        nativeBuildInputs = []
+        nativeBuildInputs = [zls.packages.${system}.default]
           ++ packages.default.nativeBuildInputs
           ++ packages.default.buildInputs
           ++ packages.default.zigWrapperBins

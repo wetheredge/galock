@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) void {
     const toml = b.dependency("toml", .{});
 
     const exe = b.addExecutable(.{
-        .name = "default",
+        .name = "galock",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,

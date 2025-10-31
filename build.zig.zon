@@ -1,7 +1,7 @@
 .{
-    .name = .default,
+    .name = .galock,
     .version = "0.0.0",
-    .fingerprint = 0xe35e00df1cd3bd43, // Changing this has security and trust implications.
+    .fingerprint = 0xa6aa84ae86c6f3aa, // Changing this has security and trust implications.
     .minimum_zig_version = "0.15.2",
     .dependencies = .{
         .regex = .{

@@ -7,5 +7,5 @@ zig-out/
 /build-*/
 /docgen_tmp/
 
-.direnv/
-result/
+/.direnv/
+/result
