@@ -6,7 +6,7 @@ action: Action,
 pub const usage =
     \\usage:
     \\  galock [options] help                # print this usage
-    \\  galock [options] list                # list all actions in the lockfile and their tags
+    \\  galock [options] list [--json]       # list all actions in the lockfile and their tags
     \\  galock [options] check               # check that all workflows match the lockfile
     \\  galock [options] set <action> <tag>  # set the tag used for an action and update workflows
     \\  galock [options] rm <action> <tag>   # remove an action from the lockfile
@@ -17,7 +17,7 @@ pub const usage =
 
 const Action = union(enum) {
     usage: CommandUsage,
-    list,
+    list: Format,
     check,
     set: CommandSet,
     remove: []const u8,
@@ -26,6 +26,11 @@ const Action = union(enum) {
 const CommandUsage = enum {
     valid,
     invalid,
+};
+
+const Format = enum {
+    human,
+    json,
 };
 
 const CommandSet = struct {
@@ -69,7 +74,13 @@ pub fn parse(args: *std.process.ArgIterator) @This() {
         if (std.mem.eql(u8, cmd, "check")) {
             cli.action = .check;
         } else if (std.mem.eql(u8, cmd, "list")) {
-            cli.action = .list;
+            if (pargs.next()) |format| {
+                if (std.mem.eql(u8, format, "--json")) {
+                    cli.action = .{ .list = .json };
+                }
+            } else {
+                cli.action = .{ .list = .human };
+            }
         } else if (std.mem.eql(u8, cmd, "set")) {
             if (pargs.next()) |action| {
                 if (pargs.next()) |tag| {

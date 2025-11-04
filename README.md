@@ -8,11 +8,10 @@ only the locked revision.
 $ galock help
 usage:
   galock [options] help                # print this usage
-  galock [options] list                # list all actions in the lockfile and their tags
+  galock [options] list [--json]       # list all actions in the lockfile and their tags
   galock [options] check               # check that all workflows match the lockfile
   galock [options] set <action> <tag>  # set the tag used for an action and update workflows
   galock [options] rm <action> <tag>   # remove an action from the lockfile
 
 options:
-  --cwd <path>  # set the working directory
-```
+  --cwd <path>  # set the working directory```

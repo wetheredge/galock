@@ -35,7 +35,7 @@ pub fn main() !u8 {
                 return 1;
             }
         },
-        .list => {
+        .list => |format| {
             var lock = try lockfile.fromPath(allocator, lockfile_path);
             defer lock.deinit(allocator);
 
@@ -43,8 +43,11 @@ pub fn main() !u8 {
             var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
             const stdout = &stdout_writer.interface;
 
-            for (lock.actions.items) |action| {
-                try stdout.print("{s}@{s}\n", .{ action.repo, action.tag });
+            switch (format) {
+                .human => for (lock.actions.items) |action| {
+                    try stdout.print("{s}@{s}\n", .{ action.repo, action.tag });
+                },
+                .json => try stdout.print("{f}\n", .{std.json.fmt(lock.actions.items, .{})}),
             }
 
             try stdout.flush();
