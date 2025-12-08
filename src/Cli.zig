@@ -5,11 +5,11 @@ action: Action,
 
 pub const usage =
     \\usage:
-    \\  galock [options] help                # print this usage
-    \\  galock [options] list [--json]       # list all actions in the lockfile and their tags
-    \\  galock [options] check               # check that all workflows match the lockfile
-    \\  galock [options] set <action> <tag>  # set the tag used for an action and update workflows
-    \\  galock [options] rm <action> <tag>   # remove an action from the lockfile
+    \\  galock [options] help                           # print this usage
+    \\  galock [options] list [--json]                  # list all actions in the lockfile and their tags
+    \\  galock [options] check                          # check that all workflows match the lockfile
+    \\  galock [options] set <action> <tag> [<commit>]  # set the tag used for an action and update workflows
+    \\  galock [options] rm <action> <tag>              # remove an action from the lockfile
     \\
     \\options:
     \\  --cwd <path>  # set the working directory
@@ -36,6 +36,7 @@ const Format = enum {
 const CommandSet = struct {
     action: []const u8,
     tag: []const u8,
+    commit: ?[]const u8,
 };
 
 pub fn parse(args: *std.process.ArgIterator) @This() {
@@ -84,7 +85,8 @@ pub fn parse(args: *std.process.ArgIterator) @This() {
         } else if (std.mem.eql(u8, cmd, "set")) {
             if (pargs.next()) |action| {
                 if (pargs.next()) |tag| {
-                    cli.action = .{ .set = .{ .action = action, .tag = tag } };
+                    const commit = pargs.next();
+                    cli.action = .{ .set = .{ .action = action, .tag = tag, .commit = commit } };
                 }
             }
         } else if (std.mem.eql(u8, cmd, "rm")) {

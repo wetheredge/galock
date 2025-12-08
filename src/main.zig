@@ -71,7 +71,7 @@ pub fn main() !u8 {
             var api = try GithubApiClient.init(allocator, null);
             defer api.deinit();
 
-            try setActionTag(allocator, &lock, &api, set.action, set.tag);
+            try setActionTag(allocator, &lock, &api, set.action, set.tag, set.commit);
         },
         .remove => |action| {
             var lock = try lockfile.fromPath(allocator, lockfile_path);
@@ -217,61 +217,70 @@ fn setActionTag(
     api: *GithubApiClient,
     repo: []const u8,
     tag: []const u8,
+    commit: ?[]const u8,
 ) !void {
-    if (try resolveTag(allocator, api, repo, tag)) |commit| {
-        defer allocator.free(commit);
+    var resolved_commit: []const u8 = undefined;
+    var free_commit = false;
+    if (commit) |c| {
+        resolved_commit = c;
+    } else if (try resolveTag(allocator, api, repo, tag)) |c| {
+        std.log.info("resolved {s}@{s} to commit {s}", .{ repo, tag, c });
 
-        std.log.info("resolved {s}@{s} to commit {s}", .{ repo, tag, commit });
-
-        _ = try lock.set(allocator, repo, tag, commit);
-        try lock.write();
-
-        var re = try ActionRegex.init(allocator);
-        defer re.deinit();
-
-        var iter = try GithubIterator.init(std.fs.cwd(), .{ .mode = .read_write });
-        while (try iter.next()) |entry| {
-            defer entry.file.close();
-
-            var w = std.io.Writer.Allocating.init(allocator);
-            defer w.deinit();
-
-            var buf: [4096]u8 = undefined;
-            var r = entry.file.reader(&buf);
-            var lines = LineIterator.init(allocator, &r.interface);
-            defer lines.deinit();
-            var i: usize = 0;
-            while (try lines.next()) |line| : (i += 1) {
-                defer allocator.free(line);
-
-                if (i > 0) try w.writer.writeByte('\n');
-
-                var maybe_captures = try re.matchLine(line);
-                if (maybe_captures) |*captures| {
-                    defer captures.deinit();
-
-                    if (std.mem.eql(u8, captures.repo(), repo)) {
-                        std.log.debug("{s}({any}): updating line {d}", .{ entry.name, entry.kind, i });
-
-                        var vec: [5][]const u8 = .{
-                            captures.head(),
-                            repo,
-                            "@",
-                            commit,
-                            captures.tail(),
-                        };
-                        try w.writer.writeVecAll(&vec);
-                        continue;
-                    }
-                }
-
-                try w.writer.writeAll(line);
-            }
-
-            try entry.file.writeAll(w.writer.buffered());
-        }
+        resolved_commit = c;
+        free_commit = true;
     } else {
         std.log.err("failed to resolve {s}@{s}", .{ repo, tag });
+        return;
+    }
+
+    defer if (free_commit) allocator.free(resolved_commit);
+
+    _ = try lock.set(allocator, repo, tag, resolved_commit);
+    try lock.write();
+
+    var re = try ActionRegex.init(allocator);
+    defer re.deinit();
+
+    var iter = try GithubIterator.init(std.fs.cwd(), .{ .mode = .read_write });
+    while (try iter.next()) |entry| {
+        defer entry.file.close();
+
+        var w = std.io.Writer.Allocating.init(allocator);
+        defer w.deinit();
+
+        var buf: [4096]u8 = undefined;
+        var r = entry.file.reader(&buf);
+        var lines = LineIterator.init(allocator, &r.interface);
+        defer lines.deinit();
+        var i: usize = 0;
+        while (try lines.next()) |line| : (i += 1) {
+            defer allocator.free(line);
+
+            if (i > 0) try w.writer.writeByte('\n');
+
+            var maybe_captures = try re.matchLine(line);
+            if (maybe_captures) |*captures| {
+                defer captures.deinit();
+
+                if (std.mem.eql(u8, captures.repo(), repo)) {
+                    std.log.debug("{s}({any}): updating line {d}", .{ entry.name, entry.kind, i });
+
+                    var vec: [5][]const u8 = .{
+                        captures.head(),
+                        repo,
+                        "@",
+                        resolved_commit,
+                        captures.tail(),
+                    };
+                    try w.writer.writeVecAll(&vec);
+                    continue;
+                }
+            }
+
+            try w.writer.writeAll(line);
+        }
+
+        try entry.file.writeAll(w.writer.buffered());
     }
 }
 
