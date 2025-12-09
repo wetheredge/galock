@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - v[0-9]+.*
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          persist-credentials: false
+      - uses: taiki-e/create-gh-release-action@26b80501670402f1999aff4b934e1574ef2d3705
+        with:
+          draft: true
+          changelog: CHANGELOG.md
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  upload-assets:
+    needs: create-release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        exe: [galock]
+        archive: [tar.gz]
+        target:
+          - aarch64-linux
+          - aarch64-macos
+          - x86_64-linux
+        include:
+          - target: x86_64-windows
+            archive: zip
+            exe: galock.exe
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          persist-credentials: false
+      - uses: mlugg/setup-zig@fa65c4058643678a4e4a9a60513944a7d8d35440
+        with:
+          version: 0.15.2
+          use-cache: false
+      - run: zig build -Doptimize=ReleaseSafe -Dtarget='${{ matrix.target }}'
+      - if: startsWith(matrix.archive, 'tar.')
+        run: tar -caf 'galock-${{ matrix.target }}.${{ matrix.archive }}' -C zig-out/bin '${{ matrix.exe }}'
+      - if: matrix.archive == 'zip'
+        run: zip '../../galock-${{ matrix.target }}' '${{ matrix.exe }}'
+        working-directory: zig-out/bin
+      - run: gh release upload "${GITHUB_REF#refs/tags/}" 'galock-${{ matrix.target }}.${{ matrix.archive }}'
+        env:
+          GH_TOKEN: ${{ github.token }}
